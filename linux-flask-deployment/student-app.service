@@ -1,0 +1,13 @@
+[Unit]
+Description=Student Flask App
+After=network.target
+
+[Service]
+User=appuser
+WorkingDirectory=/opt/student-app
+ExecStart=/opt/student-app/venv/bin/python /opt/student-app/app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,17 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets - never commit these
+.env
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Editor / OS noise
+.vscode/
+.DS_Store
+*.swp
