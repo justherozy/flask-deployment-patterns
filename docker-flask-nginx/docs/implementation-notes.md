@@ -1,35 +1,32 @@
-# Docker Project: Containerising a Flask App with NGINX and Docker Compose
+# Implementation notes: containerising a Flask service with NGINX and Docker Compose
 
 > **Docker did not make Linux disappear.** A container is still a Linux process. Docker uses kernel features (namespaces and cgroups) to isolate it, then adds tooling for images, networking, storage and lifecycle management.
 
-This is my complete record of the Docker project: what I built, every command I ran and what each part of it means, the real output I got (with screenshots), the mistakes I made and how I fixed them, and clear answers to the 35 knowledge-check questions. It is written so I can use it for **a presentation, revision, teaching someone else, and interview preparation**.
+These are the working notes for the containerised deployment: what was built, every command with an explanation of its parts, the real output (with screenshots), the failures encountered and how each was diagnosed and fixed. The concise overview is in the [project README](../README.md).
 
-**Project in one line:** take the Flask app from the Linux Fundamentals project, package it as a Docker image, run it as a container, put NGINX in front of it as a second container on a custom network, add persistent storage, and define the whole thing in Docker Compose.
+**Summary:** take the Flask service from the host-based deployment, package it as a Docker image, run it as a container, put NGINX in front of it as a second container on a custom network, add persistent storage, and define the whole thing in Docker Compose.
 
 ---
 
 ## Contents
 
-1. [Project overview and what I learned](#1-project-overview-and-what-i-learned)
+1. [Project overview and key takeaways](#1-project-overview-and-key-takeaways)
 2. [Environment and preparation](#2-environment-and-preparation)
 3. [Architecture diagrams](#3-architecture-diagrams)
 4. [The project files, explained line by line](#4-the-project-files-explained-line-by-line)
 5. [Step-by-step walkthrough, Tasks 1 to 17](#5-step-by-step-walkthrough-tasks-1-to-17)
 6. [Linux project vs Docker project](#6-linux-project-vs-docker-project)
 7. [Troubleshooting](#7-troubleshooting)
-8. [Knowledge check: 35 questions and answers](#8-knowledge-check-35-questions-and-answers)
-9. [Command cheat sheet](#9-command-cheat-sheet)
-10. [Glossary](#10-glossary)
-11. [Interview talking points](#11-interview-talking-points)
-12. [Deliverables checklist](#12-deliverables-checklist)
+8. [Command cheat sheet](#8-command-cheat-sheet)
+9. [Glossary](#9-glossary)
 
 > **A note on the screenshots.** They are photos of my screen, so some have glare or an angle. Each one is placed under the step it proves, with a caption saying what to look at.
 
 ---
 
-## 1. Project overview and what I learned
+## 1. Project overview and key takeaways
 
-**Scenario.** I am a junior DevOps engineer. In the previous project I deployed a Python Flask app directly on Linux and managed Python, a virtual environment, `systemd`, networking and NGINX by hand. The team now wants the same app packaged with Docker so it deploys the same way everywhere.
+**Scenario.** The Flask service had been deployed directly on a Linux host, with Python, a virtual environment, `systemd`, networking and NGINX all managed by hand ([host-based deployment](../../linux-flask-deployment/)). The goal here is to package the same service as container images so it deploys identically on any Docker host.
 
 **Request flow, first version:**
 
@@ -43,9 +40,9 @@ Client → Linux server :5000 → Docker port mapping → container :5000 → Fl
 Client → :80 → NGINX container → Docker network (DNS) → Flask container :5000
 ```
 
-**What I learned (the short list):**
+**Key takeaways:**
 
-| Topic | What I can now explain |
+| Topic | Takeaway |
 |---|---|
 | Containers | A container is an isolated Linux process on the host kernel, not a tiny VM |
 | Images | A stack of read-only layers built from a Dockerfile; containers are running instances |
@@ -64,7 +61,7 @@ Client → :80 → NGINX container → Docker network (DNS) → Flask container 
 
 | Item | Value |
 |---|---|
-| Cloud | Google Cloud Compute Engine VM named `linuxtutorial`, zone `europe-west2-b` |
+| Cloud | Google Cloud Compute Engine VM, zone `europe-west2-b` |
 | OS | **Debian GNU/Linux 13 (trixie)**. The brief says Ubuntu, but GCP's default image is Debian |
 | Kernel | `6.12.x+deb13-cloud-amd64` |
 | Resources | 8 vCPUs, about 31 GiB memory (shown by `docker info`) |
@@ -1256,152 +1253,7 @@ docker logs bad
 
 ---
 
-## 8. Knowledge check: 35 questions and answers
-
-### 1. What is a container?
-A **running, isolated Linux process** (or group of processes) packaged with everything it needs: code, libraries and settings. It shares the host's kernel but has its own view of processes, network, filesystem and hostname (namespaces), and its resources can be limited (cgroups).
-*My evidence:* Flask was PID 1 inside the container and PID 5264 on the host (Figure 5.14).
-
-### 2. What is the difference between a container and a VM?
-| | Virtual machine | Container |
-|---|---|---|
-| Kernel | Own guest kernel | Shares the host kernel |
-| Isolation | Hardware virtualised by a hypervisor | Process isolation (namespaces/cgroups) |
-| Size | GBs | Often tens of MB |
-| Start time | Minutes | Milliseconds to seconds |
-| Overhead | A full OS per VM | Minimal |
-
-*My evidence:* NGINX's logs printed the VM's own kernel (Figure 5.4).
-
-### 3. What is a Docker image?
-A **read-only template** made of stacked layers holding the filesystem and metadata (default command, exposed port, environment) needed to create containers. Built from a Dockerfile and identified by name and tag (`student-app:v1`).
-
-### 4. What is the difference between an image and a container?
-The image is the packaged template; the container is a **running instance** of it with a thin writable layer on top. One image can create many containers (Task 3).
-*Image = template; Container = running instance.*
-
-### 5. What happens when you run `docker run`?
-1. The CLI sends the request to the daemon over `/var/run/docker.sock`.
-2. The daemon looks for the image locally; if missing it **pulls** it from the registry (Docker Hub).
-3. It **creates** the container (writable layer, namespaces, cgroups, network, plus any volumes, env vars, ports).
-4. It **starts** the container's main process (the `CMD`).
-
-`docker run` = pull (if needed) + create + start.
-
-### 6. What is the Docker daemon?
-`dockerd`, the background service that does the real work: builds images, runs containers, manages networks and volumes. It runs as root under systemd (`docker.service`, PID 9708), stores data in `/var/lib/docker`, and uses `containerd` underneath.
-
-### 7. What is a Dockerfile?
-A text file of instructions (`FROM`, `WORKDIR`, `COPY`, `RUN`, `EXPOSE`, `CMD`...) that tells Docker how to build an image. Each file-changing instruction produces a layer.
-
-### 8. What do `FROM`, `RUN`, `COPY`, `WORKDIR` and `CMD` do?
-- **`FROM`**: the base image to start from (`python:3.12-slim`).
-- **`WORKDIR`**: sets the working directory for later instructions and for the running container.
-- **`COPY`**: copies files from the build context into the image.
-- **`RUN`**: executes a command at **build time** and saves the result as a layer (`pip install`).
-- **`CMD`**: the default command executed when a container **starts**.
-
-### 9. What is the difference between `RUN` and `CMD`?
-`RUN` executes **while building** the image and its effect is baked in. `CMD` is not executed during the build; it is stored as metadata and runs each time a container starts. (`RUN pip install ...` vs `CMD ["python","app.py"]`.)
-
-### 10. What is an image layer?
-A read-only snapshot of the filesystem **changes** made by one Dockerfile instruction. Layers stack to form the image. `COPY`/`RUN` add real size (`pip install` = 15.3 MB); `EXPOSE`/`CMD` add 0 B. A container adds one writable layer on top.
-
-### 11. Why does Docker cache layers? (and why does instruction order matter?)
-To avoid repeating work: if an instruction and everything before it are unchanged, Docker reuses the saved layer (`CACHED`). Rebuilds drop from seconds to under a second, and layers (like the 87.7 MB Debian base) are shared across images.
-
-Because a changed layer **invalidates every layer after it**, put rarely-changing steps first. Copying `requirements.txt` and installing **before** copying `app.py` means an `app.py` edit leaves `pip install` cached and Flask is not reinstalled (Figures 5.10, 5.11: 7.8 s → 0.7 s → 0.9 s).
-
-### 12. What does `-p 5000:5000` mean?
-Publish a container port on the host: `-p HOST_PORT:CONTAINER_PORT`. Traffic arriving at the VM's port 5000 is forwarded to port 5000 inside the container (Docker uses iptables rules and a proxy). Memory aid: **outside : inside**.
-
-### 13. What is the difference between a host port and a container port?
-The **host port** is on the VM and is what external clients connect to (left side). The **container port** is where the app listens inside its own network namespace (right side). They may differ (`-p 8080:5000`).
-
-### 14. Why does Flask need to listen on `0.0.0.0` inside this container?
-Inside a container, `127.0.0.1` is the container's **own** loopback. Docker delivers published traffic to the container's network interface (for example `172.17.0.2`); an app bound only to `127.0.0.1` never sees it. `0.0.0.0` means "all interfaces", including the one Docker uses (Figure 5.20 shows Flask on all three addresses).
-
-### 15. Does `EXPOSE 5000` publish port 5000 to the host?
-**No.** `EXPOSE` is documentation only (it appears in `docker ps` as `5000/tcp`). Publishing needs `-p` (or `ports:` in Compose). My Task 16 `student-app` showed `5000/tcp` with no host mapping (Figure 5.28).
-
-### 16. How can you find a container's IP address?
-```bash
-docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' student-app
-docker network inspect bridge
-```
-Mine was `172.17.0.2` on the default bridge (Figure 5.15).
-
-### 17. What is a Docker network?
-A virtual network that connects containers (and the host). The default `bridge` connects containers by IP via the `docker0` bridge. **User-defined networks** add isolation and built-in **DNS by container name**. Drivers include `bridge`, `host`, `none`, `overlay`.
-
-### 18. How can two containers communicate without knowing each other's IP addresses?
-Put them on the same **user-defined network**; Docker's embedded DNS (`127.0.0.11`) resolves container (or service) names to their current IPs. NGINX reaches Flask with `proxy_pass http://student-app:5000` (Figure 5.26).
-
-### 19. Why shouldn't you hard-code container IP addresses?
-IPs are assigned dynamically and can change when a container is recreated, so a config with a hard-coded IP breaks silently. Names stay stable and are resolved at run time.
-
-### 20. What happens to files written inside a container when that container is deleted?
-They are **lost**. They live in the container's writable layer, which is deleted with the container; a new container from the same image starts with a fresh layer (Figure 5.23: `/tmp/test.txt` disappeared).
-
-### 21. What is a Docker volume?
-Persistent storage **managed by Docker** and kept outside any container (under `/var/lib/docker/volumes/<name>/_data`). It survives container removal and can be mounted into new containers (Figure 5.25: `persistent` survived).
-
-### 22. What is the difference between a volume and a bind mount?
-| | Volume | Bind mount |
-|---|---|---|
-| Managed by | Docker | Me (a specific host path) |
-| Syntax | `-v student-data:/data` | `-v /root/student-app/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro` |
-| Location | `/var/lib/docker/volumes/...` | Any host path I choose |
-| Best for | App data, databases | Config files, source code in development |
-
-### 23. Where should a containerised application normally write its logs?
-To **stdout and stderr**, not to files inside the container. Docker captures those streams, so `docker logs` works for every container and log collectors can gather them; files inside a disposable container would vanish.
-
-### 24. What does `docker logs` show?
-The captured stdout/stderr of the container's main process. `-f` follows live and `--tail N` limits the lines (Figure 5.20).
-
-### 25. What does `docker exec` do?
-Runs a command **inside a running container**: `docker exec -it student-app /bin/sh` opens a shell, `docker exec student-app env` prints its environment. It starts a new process in the container's existing namespaces.
-
-### 26. What is a container restart policy?
-A rule telling Docker when to restart a container automatically: `no` (default), `on-failure`, `always`, `unless-stopped`. With `unless-stopped` Docker restarts after crashes, daemon restarts and reboots, but not after a manual `docker stop`. My `kill -9` test gave `RestartCount 1` (Figure 5.22). Equivalent to systemd's `Restart=always`.
-
-### 27. Why isn't a container simply a lightweight VM?
-It has **no guest OS or kernel of its own**. It is a normal process on the host kernel with restricted visibility (namespaces) and resources (cgroups). It reports the host's kernel version and its processes appear in the host's process list.
-
-### 28. How are containers related to Linux processes?
-A container *is* a process (or process tree) on the host. `python app.py` was **PID 5264 on the host** and **PID 1 inside** its PID namespace; `docker top` and the host `ps aux` show the same process (Figure 5.14).
-
-### 29. What are Linux namespaces used for?
-To give a process its own **isolated view** of system resources. Main types: **PID** (own process IDs), **NET** (own interfaces, IPs, ports), **MNT** (own filesystem mounts), **UTS** (own hostname), **IPC**, **USER**. They control what a process can *see*.
-
-### 30. What are Linux cgroups used for?
-To **limit, account for and prioritise resources** (CPU, memory, I/O) for groups of processes. They control what a process can *use* (e.g. `docker run --memory 256m --cpus 0.5`). My Docker daemon sat in the cgroup `/system.slice/docker.service` (Figure 5.1).
-
-### 31. Why can multiple containers use port `5000` internally?
-Each container has its **own network namespace** (its own interfaces and port space), so port 5000 in container A is separate from port 5000 in container B.
-
-### 32. Why can't two containers publish the same host port simultaneously?
-The **host** has a single network namespace; a given host IP:port can be bound by only one listener. A second `-p 5000:5000` fails with `port is already allocated`. Fix: different host ports (`5001:5000`) or a reverse proxy.
-
-### 33. What causes NGINX to return `502 Bad Gateway` in this architecture?
-NGINX is running but cannot get a valid response from its upstream. Causes: the Flask container is stopped or crashed; Flask is listening only on loopback; the upstream name is wrong so DNS fails (`student-api`); the containers are not on the same network; wrong port in `proxy_pass`. Troubleshoot from the outside in: NGINX running → can it resolve the app → app container running → port 5000 listening → can NGINX reach it.
-
-### 34. What problem does Docker Compose solve?
-Managing multi-container apps through long, error-prone, hard-to-share `docker run` commands. Compose describes services, networks, volumes, ports, environment variables and restart policies in one versionable `compose.yaml`, so the whole stack is repeatable with one command.
-
-### 35. What happens when you run `docker compose up`?
-1. Compose reads and validates `compose.yaml`.
-2. It creates the network(s) and volume(s) if missing.
-3. It **builds** images for services with `build:` and **pulls** images for services with `image:`.
-4. It creates and starts the containers in dependency order (`depends_on`), applying ports, environment variables, mounts and restart policies, and attaches them to the network.
-5. `-d` runs them in the background.
-
-Everything goes to the same Docker daemon through the same API as the CLI (Figure 5.31).
-
----
-
-## 9. Command cheat sheet
+## 8. Command cheat sheet
 
 | Area | Commands |
 |---|---|
@@ -1417,7 +1269,7 @@ Everything goes to the same Docker daemon through the same API as the CLI (Figur
 
 ---
 
-## 10. Glossary
+## 9. Glossary
 
 | Term | Plain-language meaning |
 |---|---|
@@ -1440,60 +1292,6 @@ Everything goes to the same Docker daemon through the same API as the CLI (Figur
 | **Reverse proxy** | A server (NGINX) that forwards client requests to backend servers |
 | **Compose** | Tool to define and run multi-container apps from one YAML file |
 | **Upstream** | The backend server a proxy forwards to (here: Flask) |
-
----
-
-## 11. Interview talking points
-
-**30-second pitch**
-> "I containerised a Flask app, ran it behind an NGINX container on a custom Docker network, used a volume for persistent data and Docker Compose to define the whole stack. I then broke it deliberately and debugged it from the outside in."
-
-**Strong, specific points to mention**
-- **Containers are processes:** the same Flask process was PID 1 inside the container and PID 5264 on the host, and the container logs printed the host's kernel version.
-- **Layer caching, with numbers:** first build 7.8 s, cached rebuild 0.7 s, rebuild after a code change 0.9 s, because I copy `requirements.txt` and install dependencies before copying the code.
-- **Networking depth:** I can explain `curl (7)` (not published) vs `curl (56)` (published but backend not ready) vs a browser timeout (firewall), and why `127.0.0.1` inside a container is unreachable through `-p`.
-- **Security awareness:** only NGINX is published; I saw internet scanners in the NGINX logs within minutes of opening port 80. Next steps: HTTPS, non-root `USER`, gunicorn, image scanning.
-- **Persistence:** I proved data in the writable layer disappears and data in a volume survives, and I can read the volume's files directly on the host.
-- **Reliability:** `--restart unless-stopped`, proved with `kill -9` and `RestartCount`.
-- **Real debugging stories:** wrong Docker repo (Debian vs Ubuntu), missing GCP firewall rule, Compose creating a differently-named volume (project-name prefix; `external: true` is the alternative), placeholder characters breaking shell commands.
-- **Evolution path:** Linux → Docker → Kubernetes (Pods, Deployments, Services, ConfigMaps, Secrets, probes, persistent storage, Ingress, scaling, self-healing).
-
-**Likely questions and short answers**
-| Question | Short answer |
-|---|---|
-| Is a container a VM? | No. A process on the host kernel, isolated by namespaces and limited by cgroups |
-| Why `0.0.0.0` in a container? | Loopback inside a container is the container only; Docker traffic arrives on another interface |
-| How does NGINX find Flask? | Docker's embedded DNS on a user-defined network resolves the container name |
-| What causes a 502? | NGINX is up but its upstream is down, unreachable or misresolved |
-| Volume vs bind mount? | Docker-managed storage vs a specific host path |
-| Why Compose? | Repeatable, versionable definition of the whole stack instead of long `docker run` commands |
-
----
-
-## 12. Deliverables checklist
-
-- [x] Architecture diagram showing `Client → NGINX Container → Flask Container` (Figure 3.1)
-- [x] Docker installation verification (Figures 5.1, 5.2)
-- [x] `Dockerfile` (section 4.3, Figure 5.7)
-- [x] `requirements.txt` (section 4.2)
-- [x] Successful Docker image build (Figure 5.8)
-- [x] Evidence of image layers using `docker history` (Figure 5.9)
-- [x] Running Flask container (Figure 5.12)
-- [x] Evidence of host-to-container port mapping (Figures 5.12, 5.28)
-- [x] Container process information (Figures 5.13, 5.14)
-- [x] Container network inspection (Figure 5.15)
-- [x] Environment variable configuration (Figures 5.18, 5.19)
-- [x] Container logs (Figure 5.20)
-- [x] Restart policy demonstration (Figure 5.22)
-- [x] Persistent Docker volume demonstration (Figure 5.25)
-- [x] Custom Docker network (Figure 5.26)
-- [x] NGINX and Flask communicating using container DNS (Figure 5.26)
-- [x] Flask not directly exposed externally (Figure 5.28)
-- [x] `compose.yaml` (section 4.5)
-- [x] Successful `docker compose up` (Figure 5.31)
-- [x] Successful request through NGINX (Figures 5.28, 5.31)
-- [ ] Evidence from at least three troubleshooting challenges (in progress: Challenge 7 is covered by Tasks 12 and 13; screenshots for the others are being added)
-- [x] `README.md` explaining the architecture, deployment and troubleshooting process (this file)
 
 ---
 

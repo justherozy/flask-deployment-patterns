@@ -12,7 +12,7 @@ The goal of this repository is to show the engineering trade-offs between runnin
 |---|---|
 | [`linux-flask-deployment/`](linux-flask-deployment/) | Host-based deployment: unprivileged service user, virtualenv, `systemd` unit with restart policy, NGINX reverse proxy |
 | [`docker-flask-nginx/`](docker-flask-nginx/) | Containerised deployment: Dockerfile, Compose stack, user-defined network, named volume, NGINX reverse proxy |
-| [`docker-flask-nginx/docs/learning-log.md`](docker-flask-nginx/docs/learning-log.md) | Long-form lab notebook: every command with output, screenshots, failures and fixes |
+| [`docker-flask-nginx/docs/implementation-notes.md`](docker-flask-nginx/docs/implementation-notes.md) | Detailed implementation notes: every command with output, screenshots, failures and fixes |
 
 ## Quick start (containerised stack)
 
@@ -51,11 +51,11 @@ docker compose down                # stop and remove containers (the named volum
 | Named volume for `/data` | State survives `docker rm` and image rebuilds | Volumes are host-local; they are not a backup strategy |
 | NGINX config bind-mounted read-only | Change the proxy without rebuilding an image | The file must exist on the host, so the stack is not a single self-contained artifact |
 | `restart: unless-stopped` | Recovers from crashes and host reboots without restarting containers an operator stopped on purpose | A crash loop restarts indefinitely; check `RestartCount` |
-| `depends_on` without a health check | Orders container start | It does not wait for readiness. A request in the first seconds after `up` can fail while Flask starts (the `curl: (56)` reset documented in the learning log) |
+| `depends_on` without a health check | Orders container start | It does not wait for readiness. A request in the first seconds after `up` can fail while Flask starts (the `curl: (56)` reset documented in the implementation notes) |
 
 ## Known limitations and hardening roadmap
 
-This is a lab deployment. These are the gaps between it and a production service, in priority order:
+This is a reference deployment, not a hardened production service. These are the gaps between it and a production service, in priority order:
 
 1. **Application server.** Flask's development server is used. Replace it with `gunicorn` behind NGINX.
 2. **Container user.** The Flask container runs as root. Add a non-root `USER` to the Dockerfile.
@@ -81,8 +81,8 @@ This is a lab deployment. These are the gaps between it and a production service
     ├── compose.yaml
     ├── nginx/default.conf
     ├── diagrams/
-    ├── screenshots/               # evidence referenced by the learning log
-    └── docs/learning-log.md
+    ├── screenshots/               # evidence referenced by the implementation notes
+    └── docs/implementation-notes.md
 ```
 
 ## Environment
