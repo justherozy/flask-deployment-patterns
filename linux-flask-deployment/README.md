@@ -1,54 +1,52 @@
-# Project 1: Deploying a Flask App on Linux
+# Host-based deployment: Flask on Linux with systemd and NGINX
 
-A small Flask application deployed on a Google Cloud Debian VM the way a production service is run: a dedicated unprivileged user, an isolated Python environment, a `systemd` service that restarts itself, and NGINX as a reverse proxy.
-
-## Architecture
+A Flask service run the way a traditional host-based service is run: a dedicated unprivileged account, an isolated Python environment, a `systemd` unit that restarts it on failure, and NGINX as the only component facing the network.
 
 ```
-Client -> NGINX (:80) -> Flask (127.0.0.1:5000), run by systemd as appuser
+Client -> NGINX (:80) -> Flask (127.0.0.1:5000), supervised by systemd as appuser
 ```
 
-## What was built
+## Components
 
 | Area | Implementation |
 |---|---|
-| Environment | Google Compute Engine VM, Debian GNU/Linux 13 (trixie) |
-| Service user | `appuser`, a dedicated account with no sudo rights (least privilege) |
-| Application | Flask app in `/opt/student-app`, running in a Python virtual environment (`venv`) |
-| Process management | `systemd` unit `student-app.service` with automatic restart |
-| Reverse proxy | NGINX on port 80 forwarding to `127.0.0.1:5000` |
-| Operations | Logs with `journalctl`, ports and processes with `ss` and `ps` |
+| Platform | Google Compute Engine VM, Debian GNU/Linux 13 |
+| Service account | `appuser`, no sudo rights (least privilege) |
+| Application | `/opt/student-app`, Python virtual environment in `venv/` |
+| Supervision | `student-app.service`, `Restart=always`, starts after `network.target`, enabled at boot |
+| Reverse proxy | NGINX on port 80, `proxy_pass http://127.0.0.1:5000`, forwards `Host` and `X-Real-IP` |
 
-## Files in this folder
+## Files
 
-- `app.py`: the Flask application
-- `student-app.service`: the systemd unit file
-- NGINX site configuration
-- `requirements.txt`: Python dependencies
+| File | Purpose |
+|---|---|
+| `app.py` | Flask application; `/` and `/health`; binds `127.0.0.1:5000` |
+| `student-app.service` | systemd unit: runs the venv's Python as `appuser` from `/opt/student-app` |
+| `nginx-student-app.conf` | NGINX site configuration (the reverse proxy) |
+| `requirements.txt` | Python dependencies |
 
-## Key concepts I can explain
+## Design notes
 
-- Linux users, UID, groups, GID and what `/etc/passwd` contains
-- Why the app listens on `127.0.0.1` and NGINX faces the internet
-- The difference between an application, a process, a PID and a TCP port
-- What `755` and other permission modes mean
-- `systemctl` (control services) vs `journalctl` (read their logs)
-- Why `Restart=always` brings a killed process back, and how I proved it
+- **Loopback binding.** Flask listens on `127.0.0.1`, so the only way in from the network is through NGINX. A direct request to port 5000 from outside the VM fails.
+- **Least privilege.** The unit runs as `appuser`, so a compromise of the app does not grant root.
+- **Self-healing.** `Restart=always` brings the process back after a crash or `kill`; this was verified by killing the process and watching `systemd` start a new PID.
+- **Separation of concerns.** NGINX handles the public interface (and is where TLS would be added); `systemd` handles the process lifecycle; Flask handles requests.
 
-## Useful commands
+## Operations
 
 ```bash
-systemctl status student-app          # is the service running?
-sudo systemctl restart student-app    # restart it
-journalctl -u student-app -f          # follow its logs live
-ss -lntp | grep 5000                  # which process listens on 5000?
-sudo systemctl enable --now student-app nginx   # start now and at boot
+systemctl status student-app                    # state, PID, recent log lines
+sudo systemctl restart student-app              # restart the service
+journalctl -u student-app -f                    # follow logs
+ss -lntp | grep -E ':80|:5000'                  # who is listening where
+sudo nginx -t && sudo systemctl reload nginx    # validate then apply proxy config
+sudo systemctl enable --now student-app nginx   # start now and at every boot
 ```
 
-## Troubleshooting
+## Limitations
 
-I deliberately broke the service and diagnosed it using `systemctl status`, `journalctl` and `ss`. Each fix is documented with the evidence that confirmed it.
+Flask's development server is used rather than a WSGI server such as `gunicorn`; there is no TLS; the unit file has no sandboxing directives (`NoNewPrivileges`, `ProtectSystem`, and similar). See the hardening roadmap in the [repository README](../README.md).
 
 ## Next
 
-The same application is containerised in [../docker-flask-nginx](../docker-flask-nginx/).
+The same service, containerised: [`../docker-flask-nginx`](../docker-flask-nginx/).
